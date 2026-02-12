@@ -1,0 +1,92 @@
+name: Keep Streamlit Awake (Free + Lightweight)
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keepawake
+  cancel-in-progress: true
+
+jobs:
+  keepawake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Probe with curl (cheap keepalive)
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          URL="https://oamcoco-automation-boldsukh.streamlit.app/"
+          UA="keepawake-bot/1.0 (+GitHub Actions)"
+          OUT="page.html"
+
+          echo "[probe] GET $URL"
+          if curl -L --compressed --retry 2 --retry-all-errors --max-time 40 \
+              -H "User-Agent: $UA" \
+              -o "$OUT" \
+              "$URL"; then
+
+            if grep -Eiq "Yes, get this app back up|This app has gone to sleep|gone to sleep|hibernat|zzzz|wake up" "$OUT"; then
+              echo "[probe] Sleep page markers found -> will auto-wake."
+              echo "needs_wake=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "[probe] Looks awake. Done."
+              echo "needs_wake=false" >> "$GITHUB_OUTPUT"
+            fi
+
+          else
+            echo "[probe] curl failed -> will attempt auto-wake."
+            echo "needs_wake=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (only if waking)
+        if: steps.probe.outputs.needs_wake == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python (only if waking)
+        if: steps.probe.outputs.needs_wake == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip + Playwright browsers (only if waking)
+        if: steps.probe.outputs.needs_wake == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/ms-playwright
+          key: ubuntu-playwright-keepawake-v1
+          restore-keys: |
+            ubuntu-playwright-keepawake-
+
+      - name: Install Playwright (only if waking)
+        if: steps.probe.outputs.needs_wake == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-input playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Auto-wake if asleep (only if waking)
+        if: steps.probe.outputs.needs_wake == 'true'
+        env:
+          APP_URL: https://oamcoco-automation-boldsukh.streamlit.app/
+        run: |
+          python scripts/wake_streamlit.py
+
+      - name: Upload screenshot only when waking or failing
+        if: failure() || steps.probe.outputs.needs_wake == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: streamlit-keepawake-screenshot
+          path: keepawake_last.png
+          if-no-files-found: ignore
+          retention-days: 3
