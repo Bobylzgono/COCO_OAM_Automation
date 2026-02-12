@@ -1,0 +1,10 @@
+﻿# Core runtime dependencies
+streamlit>=1.36
+pandas>=2.0
+numpy>=1.24
+requests>=2.31
+beautifulsoup4>=4.12
+openpyxl>=3.1
+
+# Optional: required only for "Download Graph (PNG)" in Result page
+matplotlib>=3.8
